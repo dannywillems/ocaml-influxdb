@@ -1,0 +1,10 @@
+(executable (
+  (name test)
+  (libraries (influxdb cohttp.lwt))
+))
+
+(alias (
+  (name      main)
+  (deps      (test.exe))
+  (action    (run ${<}))
+))

@@ -1,2 +1,3 @@
 # ocaml-influxdb
-OCaml interface to the time series database InfluxDB
+
+OCaml interface to the time series database InfluxDB.

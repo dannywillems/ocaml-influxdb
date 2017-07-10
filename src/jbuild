@@ -1,0 +1,8 @@
+(library
+  ((name influxdb)
+   (public_name influxdb)
+   (modules influxdb)
+   (optional)
+   (libraries (lwt cohttp cohttp.lwt yojson))
+  )
+)
