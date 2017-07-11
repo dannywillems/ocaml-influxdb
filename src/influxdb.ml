@@ -2,6 +2,27 @@ open Lwt.Infix
 
 module Json = Yojson.Basic
 
+module Precision = struct
+  type t =
+    | Second
+    | Millisecond
+    | Microsecond
+    | Nanosecond
+
+  let string_of_t t = match t with
+    | Second -> "s"
+    | Millisecond -> "ms"
+    | Microsecond -> "us"
+    | Nanosecond -> "ns"
+
+  let t_of_string s = match s with
+    | "s" -> Second
+    | "ms" -> Millisecond
+    | "us" -> Microsecond
+    | "ns" -> Nanosecond
+    | _ -> failwith (Printf.sprintf "Precision %s is not supported. Only s, ms, us and ns are supported." s)
+end
+
 module Field = struct
   type key = string
 
@@ -180,7 +201,8 @@ module Client = struct
       let body = Cohttp_lwt_body.to_string body in
       body
 
-  let get_series_of_result json =
+  let raw_series_of_raw_result str =
+    let json = Json.from_string str in
     let results = Json.Util.member "results" json |> Json.Util.to_list in
     (Json.Util.member "series" (List.hd results)) |> Json.Util.to_list
 
@@ -292,27 +314,24 @@ module Client = struct
 
   let create_database client database_name =
     Raw.create_database client database_name >>= fun body_str ->
+    let json = json_of_result body_str in
     Lwt.return ()
 
   let get_all_database_names client =
     (Raw.get_all_database_names client) >>= fun body_str ->
-    let database_name_of_result json =
-      "hello"
+    let series = raw_series_of_raw_result body_str |> List.hd in
+    let values =
+      List.map
+        (fun value_as_list ->
+           Json.Util.to_list value_as_list |> List.hd |> Json.Util.to_string
+        )
+        (Json.Util.member "values" series |> Json.Util.to_list)
     in
-    let json = Json.from_string body_str in
-    let series = get_series_of_result json in
-    Lwt.return [body_str]
+    Lwt.return values
 
   let get_all_retention_policies client =
     Raw.get_all_retention_policies_of_database client >>= fun str ->
-    let json = json_of_result str in
-    let series =
-      Json.Util.member "results" json
-    |> Json.Util.to_list
-    |> List.hd
-    |> Json.Util.member "series"
-    |> Json.Util.to_list
-    |> List.hd
+    let series = raw_series_of_raw_result str |> List.hd
     in
     (* Can be useful later to check the columns are the same than we need *)
     (* let columns = *)

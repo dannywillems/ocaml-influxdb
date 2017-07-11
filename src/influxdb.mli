@@ -1,5 +1,17 @@
 module Json = Yojson.Basic
 
+module Precision : sig
+  type t =
+    | Second
+    | Millisecond
+    | Microsecond
+    | Nanosecond
+
+  val string_of_t : t -> string
+
+  val t_of_string : string -> t
+end
+
 module Field : sig
   (** The key of a field is a string. *)
   type key = string
@@ -97,10 +109,17 @@ module Client : sig
   val switch_database : t -> string -> t
 
   module Raw : sig
+    (** About databases *)
     val get_all_database_names : t -> string Lwt.t
 
     val create_database : t -> string -> string Lwt.t
 
+    val drop_database :
+      t ->
+      string ->
+      string Lwt.t
+
+    (** About retention policies *)
     val get_all_retention_policies_of_database : t -> string Lwt.t
 
     val create_retention_policy :
@@ -115,17 +134,19 @@ module Client : sig
       t ->
       string ->
       string Lwt.t
-
-    val drop_database :
-      t ->
-      string ->
-      string Lwt.t
   end
 
+  (** About databases *)
   val get_all_database_names : t -> string list Lwt.t
 
   val create_database : t -> string -> unit Lwt.t
 
+  val drop_database :
+    t ->
+    string ->
+    unit Lwt.t
+
+  (** About retention policies *)
   val get_all_retention_policies : t -> RetentionPolicy.t list Lwt.t
 
   val create_retention_policy :
@@ -141,16 +162,15 @@ module Client : sig
     string ->
     unit Lwt.t
 
-  val drop_database :
-    t ->
-    string ->
-    unit Lwt.t
-  (** Write a list of points *)
   (* val write_points : t -> Point.t list -> unit *)
 
   (* val select : t -> Point.t list *)
 
-  (* val get_all_tags_of_measurement : Client.t -> Measurement.t -> Tags.t list *)
+  (** About measurements *)
 
-  (* val get_all_fields_of_measurement : Client.t -> Measurement.t -> Fields.t list *)
+  (* val get_all_measurements : t -> Measurement.t list Lwt.t *)
+
+  (* val get_all_tags_of_measurement : Client.t -> Measurement.t -> Tags.t list Lwt.t *)
+
+  (* val get_all_fields_of_measurement : Client.t -> Measurement.t -> Fields.t Lwt.t *)
 end
