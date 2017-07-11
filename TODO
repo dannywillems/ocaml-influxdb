@@ -1,1 +1,2 @@
-- All requests must return a boolean or the status code.
+- [ ] All requests must return a boolean or the status code.
+- [ ] Improve the code with caches.
