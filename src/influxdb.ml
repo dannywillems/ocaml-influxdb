@@ -243,12 +243,6 @@ module Client = struct
     database = database
   }
 
-  (* let get_all_retention_policies client = *)
-    (* () *)
-
-  (* let create_retention_policies client ~name ~database = *)
-  (*   () *)
-
   (* let write_points client points = *)
   (*   () *)
 
@@ -272,15 +266,13 @@ module Client = struct
     let get_all_database_names client =
       get_request client "SHOW DATABASES"
 
-    let get_default_retention_policy_on_database client =
-      ()
-
     let get_all_retention_policies_of_database client =
       let str = Printf.sprintf
           "SHOW RETENTION POLICIES ON %s"
           client.database
       in
       get_request client str
+
 
     let create_retention_policy ?(default = false) ?(replicant=1) ~name ~duration client =
       let str_default = if default then "DEFAULT" else "" in
@@ -314,6 +306,7 @@ module Client = struct
       post_request client str
   end
 
+  (** About databases *)
   let create_database client database_name =
     Raw.create_database client database_name >>= fun body_str ->
     let json = json_of_result body_str in
@@ -331,6 +324,10 @@ module Client = struct
     in
     Lwt.return values
 
+  let drop_database client name =
+    Raw.drop_database client name >>= fun resp -> Lwt.return ()
+
+  (** About retention policies *)
   let get_all_retention_policies client =
     Raw.get_all_retention_policies_of_database client >>= fun str ->
     let series = raw_series_of_raw_result str |> List.hd
@@ -352,8 +349,9 @@ module Client = struct
   let drop_retention_policy client name =
     Raw.drop_retention_policy client name >>= fun resp -> Lwt.return ()
 
-  let drop_database client name =
-    Raw.drop_database client name >>= fun resp -> Lwt.return ()
+  let get_default_retention_policy_of_database client =
+    get_all_retention_policies client >>= fun rps ->
+    Lwt.return (List.find (fun rp -> RetentionPolicy.is_default rp) rps)
 
   (* Add a timestamp. Or maybe, use something more complicated. *)
   (* let get_all_tags_of_measurement client measurement = *)

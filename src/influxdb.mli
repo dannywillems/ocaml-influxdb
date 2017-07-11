@@ -136,6 +136,8 @@ module Client : sig
       string Lwt.t
   end
 
+  val get_default_retention_policy_of_database : t -> RetentionPolicy.t Lwt.t
+
   (** About databases *)
   val get_all_database_names : t -> string list Lwt.t
 
