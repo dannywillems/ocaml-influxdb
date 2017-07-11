@@ -109,6 +109,10 @@ module Client : sig
   val switch_database : t -> string -> t
 
   module Raw : sig
+    val get_request : t -> string -> string Lwt.t
+
+    val post_request : t -> string -> string Lwt.t
+
     (** About databases *)
     val get_all_database_names : t -> string Lwt.t
 
