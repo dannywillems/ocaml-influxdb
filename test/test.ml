@@ -3,9 +3,7 @@ open Lwt.Infix
 let create_and_remove_database client =
   let database = "test42" in
   Influxdb.Client.Raw.create_database client database >>= fun resp ->
-  print_endline resp;
   Influxdb.Client.get_all_database_names client >>= fun names ->
-  List.iter print_endline names;
   if List.mem database names
   then (
     Influxdb.Client.drop_database client database >>= fun () ->
@@ -20,8 +18,21 @@ let create_and_remove_database client =
 let _ =
   Lwt_main.run (
     let client = Influxdb.Client.create ~port:8087 ~database:"test3" () in
-    ignore (create_and_remove_database client);
+    create_and_remove_database client >>= fun b ->
     (*
+    let database = "test42" in
+    Influxdb.Client.Raw.create_database client database >>= fun resp ->
+    Influxdb.Client.get_all_database_names client >>= fun names ->
+    List.iter print_endline names;
+    if List.mem database names
+    then (
+      Influxdb.Client.drop_database client database >>= fun () ->
+      Influxdb.Client.get_all_database_names client >>= fun names ->
+      if List.mem database names
+      then (Printf.printf "Error: %s not dropped" database; Lwt.return ())
+      else (Printf.printf "OK"; Lwt.return ())
+    )
+    else (Printf.printf "Error: %s not created" database; Lwt.return ());
     Influxdb.Client.create_database client "test4" >>= fun resp ->
     Influxdb.Client.Raw.create_retention_policy ~name:"week" ~duration:"4w" client >>= fun resp ->
     print_endline resp;
