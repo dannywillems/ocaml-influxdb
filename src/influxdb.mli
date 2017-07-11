@@ -104,7 +104,7 @@ module Client : sig
 
   (** Create a client *)
   val create :
-    ?username:string -> ?password:string -> ?host:string -> ?port:int -> database:string -> unit -> t
+    ?username:string -> ?password:string -> ?host:string -> ?port:int -> ?use_https:bool -> database:string -> unit -> t
 
   val switch_database : t -> string -> t
 

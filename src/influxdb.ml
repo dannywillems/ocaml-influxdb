@@ -176,19 +176,20 @@ module Client = struct
     password: string;
     host: string;
     port: int;
+    use_https: bool;
     database: string
   }
 
-  let url client use_https =
-    let protocol = if use_https then "https" else "http" in
+  let url client =
+    let protocol = if client.use_https then "https" else "http" in
     Printf.sprintf
       "%s://%s:%d"
       protocol
       client.host
       client.port
 
-  let get_request ?(use_https=false) t request =
-    let base_url = url t use_https in
+  let get_request t request =
+    let base_url = url t in
     let url =
       Printf.sprintf
         "%s/query?db=%s&q=%s"
@@ -209,14 +210,14 @@ module Client = struct
   let json_of_result str =
     Json.from_string str
 
-  let post_request ?(use_https=false) client data =
+  let post_request client data =
     let body_str =
       Printf.sprintf
         "q=%s"
         data
     in
     let body = Cohttp_lwt_body.of_string body_str in
-    let base_url = url client use_https in
+    let base_url = url client in
     let url = Printf.sprintf
         "%s/query"
         base_url
@@ -229,8 +230,8 @@ module Client = struct
     Cohttp_lwt_unix.Client.post ~body ~headers (Uri.of_string url) >>= fun (response, body) ->
     Cohttp_lwt_body.to_string body
 
-  let create ?(username="root") ?(password="root") ?(host="localhost") ?(port=8086) ~database () = {
-      username; password; host; port; database
+  let create ?(username="root") ?(password="root") ?(host="localhost") ?(port=8086) ?(use_https=false) ~database () = {
+      username; password; host; port; use_https; database
     }
 
   let switch_database client database = {
@@ -238,6 +239,7 @@ module Client = struct
     password = client.password;
     host = client.host;
     port = client.port;
+    use_https = client.use_https;
     database = database
   }
 
