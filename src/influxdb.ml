@@ -1,6 +1,63 @@
 open Lwt.Infix
 
+(** Hash table used to split points based on the retention policies. *)
+module MapString = Map.Make(String)
+
 module Json = Yojson.Basic
+
+module Datetime = struct
+  type t = {
+    year: int;
+    month: int;
+    day: int;
+    hour: int;
+    minute: int;
+    second: int
+  }
+
+  let string_of_t t =
+    Printf.sprintf
+      "%s-%s-%s %s:%s:%s"
+      (string_of_int t.year)
+      (string_of_int t.month)
+      (string_of_int t.day)
+      (string_of_int t.hour)
+      (string_of_int t.minute)
+      (string_of_int t.second)
+
+  let to_t ~year ~month ~day ~hour ~minute ~second = {
+    year; month; day; hour; minute; second
+  }
+end
+
+module Where = struct
+  type order_sign =
+    | Equal
+    | Less
+    | Greater
+    | LessOrEqual
+    | GreaterOrEqual
+
+  let string_of_order_sign sign = match sign with
+    | Equal -> "="
+    | Less -> "<"
+    | Greater -> ">"
+    | LessOrEqual -> "<="
+    | GreaterOrEqual -> ">="
+
+  type t =
+    | Tag of string * string
+    | Field of string * string
+    | Time of order_sign * Datetime.t
+
+  let string_of_t t = match t with
+    | Tag(key, value) -> Printf.sprintf "%s='%s'" key value
+    | Field(key, value) -> Printf.sprintf "%s='%s'" key value
+    | Time(sign, date) -> Printf.sprintf "time %s '%s'" (string_of_order_sign sign) (Datetime.string_of_t date)
+
+  let string_of_list_of_t list_t =
+    String.concat " AND " (List.map string_of_t list_t)
+end
 
 module Precision = struct
   type t =
@@ -39,6 +96,12 @@ module Field = struct
   let value_of_float f = Float f
   let value_of_int i = Int i
 
+  let string_of_value value = match value with
+    | Float f -> string_of_float f
+    | String s -> s
+    | Bool b -> string_of_bool b
+    | Int i -> string_of_int i
+
   let key_of_field (k, _) = k
   let value_of_field (_, v) = v
 
@@ -46,7 +109,7 @@ module Field = struct
     Printf.sprintf
       "%s=%s"
       key
-      value
+      (string_of_value value)
 end
 
 module Tag = struct
@@ -151,7 +214,12 @@ module Point = struct
   let timestamp_of_point point = point.timestamp
 
   let line_of_point point =
-    "TODO"
+    Printf.sprintf
+      "%s,%s %s %s"
+      (Measurement.name_of_t point.measurement)
+      (String.concat "," (List.map Tag.to_string point.tags))
+      (String.concat "," (List.map Field.to_string point.fields))
+      (Int64.to_string point.timestamp)
 end
 
 module Series = struct
@@ -201,9 +269,6 @@ module Client = struct
     database = database
   }
 
-  (* let write_points client points = *)
-  (*   () *)
-
   module Raw = struct
     let url client =
       let protocol = if client.use_https then "https" else "http" in
@@ -213,7 +278,7 @@ module Client = struct
         client.host
         client.port
 
-    let get_request t request =
+    let get_request t ?(additional_params=[]) request =
       let base_url = url t in
       let url =
         Printf.sprintf
@@ -222,12 +287,13 @@ module Client = struct
           t.database
           request
       in
+      print_endline url;
       Cohttp_lwt_unix.Client.get (Uri.of_string url) >>= fun(response, body) ->
         let code = response |> Cohttp.Response.status |> Cohttp.Code.code_of_status in
         let body = Cohttp_lwt_body.to_string body in
         body
 
-    let post_request client data =
+    let post_request client ?(additional_params=[]) data =
       let body_str =
         Printf.sprintf
           "q=%s"
@@ -235,9 +301,16 @@ module Client = struct
       in
       let body = Cohttp_lwt_body.of_string body_str in
       let base_url = url client in
+      let additional_params =
+        if List.length additional_params > 0
+        then
+          "?" ^ (String.concat "&" (List.map (fun (key, value) -> Printf.sprintf "%s=%s" key value) additional_params))
+        else ""
+      in
       let url = Printf.sprintf
-          "%s/query"
+          "%s/query%s"
           base_url
+          additional_params
       in
       (* The headers are mandatory! Else, we will receive the error
          {"error":"missing required parameter \"q\""}
@@ -246,7 +319,6 @@ module Client = struct
       let headers = Cohttp.Header.add headers "Content-Type" "application/x-www-form-urlencoded" in
       Cohttp_lwt_unix.Client.post ~body ~headers (Uri.of_string url) >>= fun (response, body) ->
       Cohttp_lwt_body.to_string body
-
 
     let create_database client database_name =
       let str = Printf.sprintf
@@ -273,7 +345,6 @@ module Client = struct
           client.database
       in
       get_request client str
-
 
     let create_retention_policy ?(default = false) ?(replicant=1) ~name ~duration client =
       let str_default = if default then "DEFAULT" else "" in
@@ -305,6 +376,24 @@ module Client = struct
           name
       in
       post_request client str
+
+    let get_points client ?(where=[]) ?group_by column measurement =
+      let request =
+        Printf.sprintf
+          "SELECT %s FROM %s.%s.%s WHERE %s %s"
+          column
+          client.database
+          (RetentionPolicy.name_of_t (Measurement.retention_policy_of_t measurement))
+          (Measurement.name_of_t measurement)
+          (Where.string_of_list_of_t where)
+          (match group_by with None -> "" | Some t -> Printf.sprintf "GROUP BY time(%s)" t)
+      in
+      get_request client request
+
+    let get_all_measurements client =
+      let query = "SHOW MEASUREMENTS" in
+      let additional_params = [("db", client.database)] in
+      get_request client ~additional_params query
   end
 
   (** About databases *)
@@ -353,6 +442,44 @@ module Client = struct
   let get_default_retention_policy_of_database client =
     get_all_retention_policies client >>= fun rps ->
     Lwt.return (List.find (fun rp -> RetentionPolicy.is_default rp) rps)
+
+  (** About points *)
+  (* TODO *)
+
+  let get_points client ?(where=[]) ?group_by column measurement =
+    Raw.get_points client ~where ?group_by column measurement
+
+  let split_points_list_by_retention_policy points =
+    let map_rp : Point.t list MapString.t ref = ref MapString.empty in
+    List.iter
+      (fun point ->
+         let rp =
+           RetentionPolicy.name_of_t (
+             Measurement.retention_policy_of_t (Point.measurement_of_point point)
+           )
+         in
+         try
+           let current_list = MapString.find rp (!map_rp) in
+           map_rp := MapString.add rp (point :: current_list) (!map_rp)
+         with Not_found ->
+           map_rp := MapString.add rp [point] (!map_rp) 
+      )
+      points;
+    (!map_rp)
+
+  (* TODO: add precision *)
+  let write_points client points =
+    let splitted_points = split_points_list_by_retention_policy points in
+    MapString.iter
+      (fun rp rp_points ->
+         let rp_points_line = String.concat "\n" (List.map Point.line_of_point rp_points) in
+         ignore @@ Raw.post_request client ~additional_params:[("rp", rp)] rp_points_line
+      )
+      splitted_points;
+    Lwt.return ()
+
+  (* TODO *)
+  let write_raw_points client raw_points = Lwt.return ()
 
   (* Add a timestamp. Or maybe, use something more complicated. *)
   (* let get_all_tags_of_measurement client measurement = *)

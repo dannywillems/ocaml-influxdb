@@ -17,36 +17,9 @@ let create_and_remove_database client =
 
 let _ =
   Lwt_main.run (
-    let client = Influxdb.Client.create ~port:8087 ~database:"test3" () in
+    let client = Influxdb.Client.create ~port:8087 ~database:"test" () in
     create_and_remove_database client >>= fun b ->
-    (*
-    let database = "test42" in
-    Influxdb.Client.Raw.create_database client database >>= fun resp ->
-    Influxdb.Client.get_all_database_names client >>= fun names ->
-    List.iter print_endline names;
-    if List.mem database names
-    then (
-      Influxdb.Client.drop_database client database >>= fun () ->
-      Influxdb.Client.get_all_database_names client >>= fun names ->
-      if List.mem database names
-      then (Printf.printf "Error: %s not dropped" database; Lwt.return ())
-      else (Printf.printf "OK"; Lwt.return ())
-    )
-    else (Printf.printf "Error: %s not created" database; Lwt.return ());
-    Influxdb.Client.create_database client "test4" >>= fun resp ->
-    Influxdb.Client.Raw.create_retention_policy ~name:"week" ~duration:"4w" client >>= fun resp ->
-    print_endline resp;
-    Influxdb.Client.get_all_retention_policies client >>= fun resp ->
-    List.iter
-      (fun retention_policy ->
-         print_endline (Influxdb.RetentionPolicy.name_of_t retention_policy);
-         print_endline (Influxdb.RetentionPolicy.duration_of_t retention_policy);
-         print_endline (string_of_int @@ Influxdb.RetentionPolicy.replicant_of_t retention_policy);
-         print_endline (string_of_bool @@ Influxdb.RetentionPolicy.is_default retention_policy);
-      )
-      resp;
-    (* Influxdb.Client.get_all_database_names client >>= fun(database_list) -> *)
-    (* List.iter print_endline database_list; *)
-    *)
+    Influxdb.Client.Raw.get_all_measurements client >>= fun str ->
+    print_endline str;
     Lwt.return ()
   )

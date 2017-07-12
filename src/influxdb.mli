@@ -1,5 +1,28 @@
 module Json = Yojson.Basic
 
+module Datetime : sig
+  type t
+
+  val string_of_t : t -> string
+
+  val to_t : year:int -> month:int -> day:int -> hour:int -> minute:int -> second:int -> t
+end
+
+
+module Where : sig
+  type order_sign =
+    | Equal
+    | Less
+    | Greater
+    | LessOrEqual
+    | GreaterOrEqual
+
+  type t =
+    | Tag of string * string
+    | Field of string * string
+    | Time of order_sign * Datetime.t
+end
+
 module Precision : sig
   type t =
     | Second
@@ -109,9 +132,9 @@ module Client : sig
   val switch_database : t -> string -> t
 
   module Raw : sig
-    val get_request : t -> string -> string Lwt.t
+    val get_request : t -> ?additional_params:(string * string) list -> string -> string Lwt.t
 
-    val post_request : t -> string -> string Lwt.t
+    val post_request : t -> ?additional_params:(string * string) list -> string -> string Lwt.t
 
     (** About databases *)
     val get_all_database_names : t -> string Lwt.t
@@ -138,6 +161,17 @@ module Client : sig
       t ->
       string ->
       string Lwt.t
+
+    val get_points :
+      t ->
+      ?where:(Where.t list) ->
+      ?group_by:string ->
+      string ->
+      Measurement.t ->
+      string Lwt.t
+
+    val get_all_measurements :
+      t -> string Lwt.t
   end
 
   val get_default_retention_policy_of_database : t -> RetentionPolicy.t Lwt.t
@@ -168,7 +202,15 @@ module Client : sig
     string ->
     unit Lwt.t
 
-  (* val write_points : t -> Point.t list -> unit *)
+  val get_points :
+      t ->
+      ?where:(Where.t list) ->
+      ?group_by:string ->
+      string ->
+      Measurement.t ->
+      string Lwt.t
+
+  val write_points : t -> Point.t list -> unit Lwt.t
 
   (* val select : t -> Point.t list *)
 
