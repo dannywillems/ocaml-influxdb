@@ -6,5 +6,5 @@
   To be sure we won't use a basic retention policy in place of a real rp, we can
   add a field in the type t which will be used to raise an exception when we
   will try to get the duration or the shard group duration in the case of a basic rp.
-- [ ] Add precision in write_points function.
-- [ ] Timestamp in points is an option because sometimes we don't want to add it.
+- [x] (b752031) Add precision in write_points function.
+- [x] (b752031) Timestamp in points is an option because sometimes we don't want to add it.
