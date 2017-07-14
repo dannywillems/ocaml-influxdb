@@ -242,20 +242,46 @@ module Point = struct
       (match point.timestamp with None -> "" | Some t -> Int64.to_string t)
 end
 
-module Series = struct
-  type t = {
+module QueryResult = struct
+  type serie = {
     name: string;
     columns: string list;
-    values: Point.t list
+    values: Json.json list list;
   }
 
-  let of_json json =
-    let columns =
-      List.map
-        Json.Util.to_string
-        (Json.Util.member "columns" json |> Json.Util.to_list)
+  type t = {
+    statement_id: int;
+    series: serie list
+  }
+
+  (* FIXME: Must return a list of t. I don't know why results is a list of
+     object and not an object.
+  *)
+  let of_string str =
+    let results =
+      Json.from_string str |> Json.Util.member "results" |> Json.Util.to_list |> List.hd
     in
-    ()
+    let statement_id = Json.Util.member "statement_id" results |> Json.Util.to_int in
+    let series = Json.Util.member "series" results |> Json.Util.to_list in
+    let series = List.map
+      (fun serie ->
+         let name = Json.Util.member "name" serie |> Json.Util.to_string in
+         let columns_list = Json.Util.member "columns" serie |> Json.Util.to_list in
+         let columns = List.map Json.Util.to_string columns_list in
+         let values_list = Json.Util.member "values" serie |> Json.Util.to_list in
+         let values = List.map Json.Util.to_list values_list in
+         {name; columns; values}
+      )
+      series
+    in
+    {statement_id; series}
+
+  let statement_id_of_t r = r.statement_id
+  let series_of_t r = r.series
+
+  let values_of_serie s = s.values
+  let columns_of_serie s = s.columns
+  let name_of_serie s = s.name
 end
 
 module Client = struct
@@ -267,18 +293,6 @@ module Client = struct
     use_https: bool;
     database: string
   }
-
-  let raw_series_of_raw_result str =
-    let json = Json.from_string str in
-    let results = Json.Util.member "results" json |> Json.Util.to_list in
-    (Json.Util.member "series" (List.hd results)) |> Json.Util.to_list
-
-  let raw_values_of_raw_result str =
-    let json = raw_series_of_raw_result str |> List.hd in
-    Json.Util.member "values" json |> Json.Util.to_list
-
-  let json_of_result str =
-    Json.from_string str
 
   let create ?(username="root") ?(password="root") ?(host="localhost") ?(port=8086) ?(use_https=false) ~database () = {
       username; password; host; port; use_https; database
@@ -356,12 +370,12 @@ module Client = struct
       (* If a retention policy is given, we need to use %s.%s.%s. Else, we can
          only use the measurement and mention the database name in parameter *)
       let from_request = match retention_policy with
-       | None -> client.database
-       | Some rp -> Printf.sprintf
-                      "%s.%s.%s"
-                      client.database
-                      (RetentionPolicy.name_of_t rp)
-                      (Measurement.string_of_t measurement)
+        | None -> (Measurement.string_of_t measurement)
+        | Some rp -> Printf.sprintf
+                       "%s.%s.%s"
+                       client.database
+                       (RetentionPolicy.name_of_t rp)
+                       (Measurement.string_of_t measurement)
       in
       let column = match column with
         | None -> "*"
@@ -371,12 +385,17 @@ module Client = struct
         | None -> ""
         | Some t -> Printf.sprintf "GROUP BY time(%s)" t
       in
+      let where =
+        if List.length where > 0
+        then Printf.sprintf "WHERE %s" (Where.string_of_list_of_t where)
+        else ""
+      in
       let request =
         Printf.sprintf
-          "SELECT %s FROM %s WHERE %s %s"
+          "SELECT %s FROM %s %s %s"
           column
           from_request
-          (Where.string_of_list_of_t where)
+          where
           group_by
       in
       let additional_params = [("db", client.database)] in
@@ -444,6 +463,17 @@ module Client = struct
       let query = "SHOW MEASUREMENTS" in
       let additional_params = [("db", client.database)] in
       get_request client ~additional_params query
+
+    let get_tag_names_of_measurement client measurement =
+      let query = "SHOW TAG KEYS" in
+      let additional_params = [("db", client.database)] in
+      get_request client ~additional_params query
+
+    let get_field_names_of_measurement client measurement =
+      let query = "SHOW FIELD KEYS" in
+      let additional_params = [("db", client.database)] in
+      get_request client ~additional_params query
+
   end
   (***** Raw module *****)
   (**********************************************************************)
@@ -451,18 +481,16 @@ module Client = struct
   (** About databases *)
   let create_database client database_name =
     Raw.create_database client database_name >>= fun body_str ->
-    let json = json_of_result body_str in
     Lwt.return ()
 
   let get_all_database_names client =
     (Raw.get_all_database_names client) >>= fun body_str ->
-    let series = raw_series_of_raw_result body_str |> List.hd in
+    let result = QueryResult.of_string body_str in
+    let serie = QueryResult.series_of_t result |> List.hd in
     let values =
       List.map
-        (fun value_as_list ->
-           Json.Util.to_list value_as_list |> List.hd |> Json.Util.to_string
-        )
-        (Json.Util.member "values" series |> Json.Util.to_list)
+        (fun value -> List.hd value |> Json.Util.to_string)
+        (QueryResult.values_of_serie serie)
     in
     Lwt.return values
 
@@ -472,17 +500,16 @@ module Client = struct
   (** About retention policies *)
   let get_all_retention_policies client =
     Raw.get_all_retention_policies_of_database client >>= fun str ->
-    let series = raw_series_of_raw_result str |> List.hd in
+    let results = QueryResult.of_string str in
     (* Can be useful later to check the columns are the same than we need *)
     (* let columns = *)
     (*   Json.Util.member "columns" series *)
     (*   |> Json.Util.to_list *)
     (* in *)
-    let list_of_values json =
-      List.map RetentionPolicy.t_of_json json
-    in
-    let values = list_of_values (Json.Util.member "values" series |>
-                                 Json.Util.to_list)
+    let values =
+      List.map
+        RetentionPolicy.t_of_json
+        (QueryResult.values_of_serie (QueryResult.series_of_t results |> List.hd) |> List.hd)
     in
     Lwt.return values
 
@@ -504,33 +531,70 @@ module Client = struct
   let get_points client ?retention_policy ?(where=[]) ?column ?group_by measurement =
     Raw.get_points client ?retention_policy ~where ?column ?group_by measurement
 
-  (* TODO: add precision *)
   let write_points client ?precision ?retention_policy points =
     Raw.write_points client ?precision ?retention_policy points >>= fun resp -> Lwt.return ()
 
   (* TODO *)
-  let write_raw_points client ?retention_policy raw_points =
-    Lwt.return ()
+  (* let write_raw_points client ?retention_policy raw_points = *)
+    (* Lwt.return () *)
 
   let get_all_measurements client =
-    Raw.get_all_measurements client >>= fun resp ->
-    let values = raw_values_of_raw_result resp in
-    let measurements = List.map
-      (fun elem ->
-         let name = Json.Util.to_list elem |> List.hd |> Json.Util.to_string in
-         Measurement.t_of_string name
-      )
-      values
+    Raw.get_all_measurements client >>= fun str ->
+    let results = QueryResult.of_string str in
+    let measurements =
+      List.map
+        (fun json -> Json.Util.to_string json |> Measurement.t_of_string)
+        (QueryResult.values_of_serie (QueryResult.series_of_t results |> List.hd) |> List.hd)
     in
+    (* let measurements = List.map Measurement.t_of_string raw_measurements in *)
     Lwt.return measurements
 
-  (* let retention_policy_of_measurement client measurement = *)
-  (* get_all_retention_policies client >>= fun l -> List.find  *)
-
   (* Add a timestamp. Or maybe, use something more complicated. *)
-  (* let get_all_tags_of_measurement client measurement = *)
-  (*   () *)
+  let get_tag_names_of_measurement client measurement =
+    Raw.get_tag_names_of_measurement client measurement >>= fun str ->
+    let results = QueryResult.of_string str in
+    let series = QueryResult.series_of_t results in
+    let tags_of_measurements =
+      List.map
+        (fun serie ->
+           let name = QueryResult.name_of_serie serie in
+           let tags =
+             List.map
+               (fun value -> List.hd value |> Json.Util.to_string)
+               (QueryResult.values_of_serie serie)
+           in
+           (name, tags)
+        )
+        series
+    in
+    let values =
+      snd @@ List.find
+        (fun (name, values) -> String.equal name (Measurement.string_of_t measurement))
+        tags_of_measurements
+    in
+    Lwt.return values
 
-  (* let get_all_fields_of_measurement client measurement = *)
-  (*   () *)
+  let get_field_names_of_measurement client measurement =
+    Raw.get_field_names_of_measurement client measurement >>= fun str ->
+    let results = QueryResult.of_string str in
+    let series = QueryResult.series_of_t results in
+    let fields_of_measurements =
+      List.map
+        (fun serie ->
+           let name = QueryResult.name_of_serie serie in
+           let fields =
+             List.map
+               (fun value -> List.hd value |> Json.Util.to_string)
+               (QueryResult.values_of_serie serie)
+           in
+           (name, fields)
+        )
+        series
+    in
+    let values =
+      snd @@ List.find
+        (fun (name, values) -> String.equal name (Measurement.string_of_t measurement))
+        fields_of_measurements
+    in
+    Lwt.return values
 end

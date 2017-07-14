@@ -120,6 +120,26 @@ module Point : sig
   val timestamp_of_point : t -> Int64.t option
 end
 
+(** Represent the result of a query *)
+module QueryResult : sig
+  (** A result is a statement id bounded to a list of series *)
+  type t
+
+  (** A serie contains a name, the columns of the result and the corresponding
+      list of values.
+      The values order is the same than the columns order.
+      IMPROVEME: merge columns and values and return a list of list of (column, value)?
+  *)
+  type serie
+
+  val series_of_t : t -> serie list
+  val statement_id_of_t : t -> int
+
+  val name_of_serie : serie -> string
+  val columns_of_serie : serie -> string list
+  val values_of_serie : serie -> Json.json list list
+end
+
 module Client : sig
 
   type t
@@ -179,6 +199,10 @@ module Client : sig
       ?retention_policy:RetentionPolicy.t ->
       Point.t list ->
       string Lwt.t
+
+    val get_tag_names_of_measurement : t -> Measurement.t -> string Lwt.t
+
+    val get_field_names_of_measurement : t -> Measurement.t -> string Lwt.t
   end
 
   val get_default_retention_policy_of_database : t -> RetentionPolicy.t Lwt.t
@@ -228,7 +252,7 @@ module Client : sig
   (** About measurements *)
   val get_all_measurements : t -> Measurement.t list Lwt.t
 
-  (* val get_all_tags_of_measurement : Client.t -> Measurement.t -> Tags.t list Lwt.t *)
+  val get_tag_names_of_measurement : t -> Measurement.t -> string list Lwt.t
 
-  (* val get_all_fields_of_measurement : Client.t -> Measurement.t -> Fields.t Lwt.t *)
+  val get_field_names_of_measurement : t -> Measurement.t -> string list Lwt.t
 end
