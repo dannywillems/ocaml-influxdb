@@ -225,11 +225,8 @@ module Client : sig
     Point.t list ->
     unit Lwt.t
 
-  (* val select : t -> Point.t list *)
-
   (** About measurements *)
-
-  (* val get_all_measurements : t -> Measurement.t list Lwt.t *)
+  val get_all_measurements : t -> Measurement.t list Lwt.t
 
   (* val get_all_tags_of_measurement : Client.t -> Measurement.t -> Tags.t list Lwt.t *)
 

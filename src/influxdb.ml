@@ -273,6 +273,10 @@ module Client = struct
     let results = Json.Util.member "results" json |> Json.Util.to_list in
     (Json.Util.member "series" (List.hd results)) |> Json.Util.to_list
 
+  let raw_values_of_raw_result str =
+    let json = raw_series_of_raw_result str |> List.hd in
+    Json.Util.member "values" json |> Json.Util.to_list
+
   let json_of_result str =
     Json.from_string str
 
@@ -509,7 +513,16 @@ module Client = struct
     Lwt.return ()
 
   let get_all_measurements client =
-    Raw.get_all_measurements client
+    Raw.get_all_measurements client >>= fun resp ->
+    let values = raw_values_of_raw_result resp in
+    let measurements = List.map
+      (fun elem ->
+         let name = Json.Util.to_list elem |> List.hd |> Json.Util.to_string in
+         Measurement.t_of_string name
+      )
+      values
+    in
+    Lwt.return measurements
 
   (* let retention_policy_of_measurement client measurement = *)
   (* get_all_retention_policies client >>= fun l -> List.find  *)

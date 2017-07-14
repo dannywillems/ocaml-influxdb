@@ -19,7 +19,8 @@ let _ =
   Lwt_main.run (
     let client = Influxdb.Client.create ~port:8087 ~database:"test" () in
     create_and_remove_database client >>= fun b ->
-    Influxdb.Client.Raw.get_all_measurements client >>= fun str ->
-    print_endline str;
+    Influxdb.Client.get_all_measurements client >>= fun measurements ->
+    let measurements = List.map Influxdb.Measurement.string_of_t measurements in
+    List.iter print_endline measurements;
     Lwt.return ()
   )
