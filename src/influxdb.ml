@@ -218,7 +218,7 @@ module Point = struct
     measurement: Measurement.t;
     fields: Field.t list;
     tags: Tag.t list;
-    timestamp: int64
+    timestamp: int64 option;
   }
 
   (** Get the measurement of a point. *)
@@ -239,7 +239,7 @@ module Point = struct
       (Measurement.string_of_t point.measurement)
       (String.concat "," (List.map Tag.to_string point.tags))
       (String.concat "," (List.map Field.to_string point.fields))
-      (Int64.to_string point.timestamp)
+      (match point.timestamp with None -> "" | Some t -> Int64.to_string t)
 end
 
 module Series = struct
@@ -378,11 +378,13 @@ module Client = struct
       let additional_params = [("db", client.database)] in
       get_request client ~additional_params request
 
-    let write_points client ?retention_policy points =
+    let write_points client ?precision ?retention_policy points =
       let line = String.concat "\n" (List.map Point.line_of_point points) in
-      let additional_params = match retention_policy with
-        | None -> []
-        | Some rp -> [("rp", (RetentionPolicy.name_of_t rp))]
+      let additional_params = match (retention_policy, precision) with
+        | None, None -> []
+        | Some rp, None -> [("rp", (RetentionPolicy.name_of_t rp))]
+        | None, Some precision -> [("p", (Precision.string_of_t precision))]
+        | Some rp, Some precision -> [("rp", RetentionPolicy.name_of_t rp); ("p", Precision.string_of_t precision)]
       in
       post_request client ~additional_params line
 
@@ -499,8 +501,8 @@ module Client = struct
     Raw.get_points client ?retention_policy ~where ?column ?group_by measurement
 
   (* TODO: add precision *)
-  let write_points client ?retention_policy points =
-    Raw.write_points client ?retention_policy points >>= fun resp -> Lwt.return ()
+  let write_points client ?precision ?retention_policy points =
+    Raw.write_points client ?precision ?retention_policy points >>= fun resp -> Lwt.return ()
 
   (* TODO *)
   let write_raw_points client ?retention_policy raw_points =

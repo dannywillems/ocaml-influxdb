@@ -116,6 +116,8 @@ module Point : sig
   val tags_of_point : t -> Tag.t list
   (** Get the measurement of a point. *)
   val measurement_of_point : t -> Measurement.t
+
+  val timestamp_of_point : t -> Int64.t option
 end
 
 module Client : sig
@@ -173,6 +175,7 @@ module Client : sig
 
     val write_points :
       t ->
+      ?precision:Precision.t ->
       ?retention_policy:RetentionPolicy.t ->
       Point.t list ->
       string Lwt.t
@@ -217,6 +220,7 @@ module Client : sig
 
   val write_points :
     t ->
+    ?precision:Precision.t ->
     ?retention_policy:RetentionPolicy.t ->
     Point.t list ->
     unit Lwt.t

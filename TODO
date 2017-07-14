@@ -1,8 +1,10 @@
 - [ ] All requests must return a boolean or the status code.
 - [ ] Improve the code with caches.
-- [ ] Sometimes, we don't want to specify a complete retention policy for
+- [x] (69223c4) Sometimes, we don't want to specify a complete retention policy for
   selection. We can think about a function basic_retention_policy_of_string
   which takes only a string for the name and set randon value to other fields.
   To be sure we won't use a basic retention policy in place of a real rp, we can
   add a field in the type t which will be used to raise an exception when we
   will try to get the duration or the shard group duration in the case of a basic rp.
+- [ ] Add precision in write_points function.
+- [ ] Timestamp in points is an option because sometimes we don't want to add it.
