@@ -137,13 +137,36 @@ module RetentionPolicy = struct
     shard_group_duration: string;
     replicant: int;
     default: bool;
+    is_basic: bool
   }
 
+  let basic_retention_policy_of_string name = {
+    name;
+    duration = "";
+    shard_group_duration = "";
+    replicant = 0;
+    default = false;
+    is_basic = true;
+  }
+
+  let check_if_basic rp =
+    if rp.is_basic
+    then (failwith "This retention policy is a basic one. You can't only use it for the name")
+    else ()
+
   let name_of_t t = t.name
-  let duration_of_t t = t.duration
-  let replicant_of_t t = t.replicant
-  let is_default t = t.default
-  let shard_group_duration_of_t t = t.shard_group_duration
+  let duration_of_t t =
+    check_if_basic t;
+    t.duration
+  let replicant_of_t t =
+    check_if_basic t;
+    t.replicant
+  let is_default t =
+    check_if_basic t;
+    t.default
+  let shard_group_duration_of_t t =
+    check_if_basic t;
+    t.shard_group_duration
 
   let t_of_tuple (name, duration, shard_group_duration, replicant, default) = {
     name;
@@ -151,8 +174,8 @@ module RetentionPolicy = struct
     shard_group_duration;
     replicant;
     default;
+    is_basic = false;
   }
-
 
   let t_of_json json =
     match (Json.Util.to_list json) with
@@ -171,9 +194,9 @@ module RetentionPolicy = struct
     duration;
     replicant;
     default;
-    shard_group_duration
+    shard_group_duration;
+    is_basic = false;
   }
-
 end
 
 module Measurement = struct
