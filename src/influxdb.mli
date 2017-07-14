@@ -99,12 +99,9 @@ module Measurement : sig
   (** The type of a measurement. *)
   type t
 
-  val to_t : string -> RetentionPolicy.t  -> t
+  val t_of_string : string -> t
 
-  val retention_policy_of_t : t -> RetentionPolicy.t
-
-  val name_of_t : t -> string
-
+  val string_of_t : t -> string
 end
 
 (** About points. *)
@@ -164,14 +161,21 @@ module Client : sig
 
     val get_points :
       t ->
-      ?where:(Where.t list) ->
+      ?retention_policy:RetentionPolicy.t ->
+      ?where:Where.t list ->
+      ?column:string ->
       ?group_by:string ->
-      string ->
       Measurement.t ->
       string Lwt.t
 
     val get_all_measurements :
       t -> string Lwt.t
+
+    val write_points :
+      t ->
+      ?retention_policy:RetentionPolicy.t ->
+      Point.t list ->
+      string Lwt.t
   end
 
   val get_default_retention_policy_of_database : t -> RetentionPolicy.t Lwt.t
@@ -203,14 +207,19 @@ module Client : sig
     unit Lwt.t
 
   val get_points :
-      t ->
-      ?where:(Where.t list) ->
-      ?group_by:string ->
-      string ->
-      Measurement.t ->
-      string Lwt.t
+    t ->
+    ?retention_policy:RetentionPolicy.t ->
+    ?where:Where.t list ->
+    ?column:string ->
+    ?group_by:string ->
+    Measurement.t ->
+    string Lwt.t
 
-  val write_points : t -> Point.t list -> unit Lwt.t
+  val write_points :
+    t ->
+    ?retention_policy:RetentionPolicy.t ->
+    Point.t list ->
+    unit Lwt.t
 
   (* val select : t -> Point.t list *)
 

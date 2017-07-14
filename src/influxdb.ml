@@ -180,16 +180,13 @@ module Measurement = struct
   (** The type of a measurement. *)
   type t = {
     name: string;
-    retention_policy: RetentionPolicy.t
   }
 
-  let to_t name retention_policy = {
-    name; retention_policy
+  let t_of_string name = {
+    name
   }
 
-  let retention_policy_of_t m = m.retention_policy
-
-  let name_of_t m = m.name
+  let string_of_t m = m.name
 end
 
 module Point = struct
@@ -216,7 +213,7 @@ module Point = struct
   let line_of_point point =
     Printf.sprintf
       "%s,%s %s %s"
-      (Measurement.name_of_t point.measurement)
+      (Measurement.string_of_t point.measurement)
       (String.concat "," (List.map Tag.to_string point.tags))
       (String.concat "," (List.map Field.to_string point.fields))
       (Int64.to_string point.timestamp)
@@ -269,6 +266,8 @@ module Client = struct
     database = database
   }
 
+  (**********************************************************************)
+  (***** Raw module *****)
   module Raw = struct
     let url client =
       let protocol = if client.use_https then "https" else "http" in
@@ -280,18 +279,21 @@ module Client = struct
 
     let get_request t ?(additional_params=[]) request =
       let base_url = url t in
+      let additional_params = ("q", request) :: additional_params in
+      let additional_params =
+        String.concat "&" (List.map (fun (key, value) -> Printf.sprintf "%s=%s" key value) additional_params)
+      in
       let url =
         Printf.sprintf
-          "%s/query?db=%s&q=%s"
+          "%s/query?%s"
           base_url
-          t.database
-          request
+          additional_params
       in
       print_endline url;
       Cohttp_lwt_unix.Client.get (Uri.of_string url) >>= fun(response, body) ->
-        let code = response |> Cohttp.Response.status |> Cohttp.Code.code_of_status in
-        let body = Cohttp_lwt_body.to_string body in
-        body
+      let code = response |> Cohttp.Response.status |> Cohttp.Code.code_of_status in
+      let body = Cohttp_lwt_body.to_string body in
+      body
 
     let post_request client ?(additional_params=[]) data =
       let body_str =
@@ -312,13 +314,54 @@ module Client = struct
           base_url
           additional_params
       in
+      print_endline url;
       (* The headers are mandatory! Else, we will receive the error
-         {"error":"missing required parameter \"q\""}
+          {"error":"missing required parameter \"q\""}
       *)
       let headers = Cohttp.Header.init () in
-      let headers = Cohttp.Header.add headers "Content-Type" "application/x-www-form-urlencoded" in
+      let headers =
+        Cohttp.Header.add headers "Content-Type" "application/x-www-form-urlencoded"
+      in
       Cohttp_lwt_unix.Client.post ~body ~headers (Uri.of_string url) >>= fun (response, body) ->
       Cohttp_lwt_body.to_string body
+
+    let get_points client ?retention_policy ?(where=[]) ?column ?group_by measurement =
+      (* If a retention policy is given, we need to use %s.%s.%s. Else, we can
+         only use the measurement and mention the database name in parameter *)
+      let from_request = match retention_policy with
+       | None -> client.database
+       | Some rp -> Printf.sprintf
+                      "%s.%s.%s"
+                      client.database
+                      (RetentionPolicy.name_of_t rp)
+                      (Measurement.string_of_t measurement)
+      in
+      let column = match column with
+        | None -> "*"
+        | Some c -> c
+      in
+      let group_by = match group_by with
+        | None -> ""
+        | Some t -> Printf.sprintf "GROUP BY time(%s)" t
+      in
+      let request =
+        Printf.sprintf
+          "SELECT %s FROM %s WHERE %s %s"
+          column
+          from_request
+          (Where.string_of_list_of_t where)
+          group_by
+      in
+      let additional_params = [("db", client.database)] in
+      get_request client ~additional_params request
+
+    let write_points client ?retention_policy points =
+      let line = String.concat "\n" (List.map Point.line_of_point points) in
+      let additional_params = match retention_policy with
+        | None -> []
+        | Some rp -> [("rp", (RetentionPolicy.name_of_t rp))]
+      in
+      post_request client ~additional_params line
 
     let create_database client database_name =
       let str = Printf.sprintf
@@ -326,15 +369,6 @@ module Client = struct
           database_name
       in
       post_request client str
-
-    let get_all_points_of_measurement client measurement =
-      let str = Printf.sprintf
-          "SELECT * FROM %s.%s.%s"
-          client.database
-          (RetentionPolicy.name_of_t (Measurement.retention_policy_of_t measurement))
-          (Measurement.name_of_t measurement)
-      in
-      get_request client str
 
     let get_all_database_names client =
       get_request client "SHOW DATABASES"
@@ -345,6 +379,21 @@ module Client = struct
           client.database
       in
       get_request client str
+
+    let drop_retention_policy client name =
+      let str = Printf.sprintf
+          "DROP RETENTION POLICY %s ON %s"
+          name
+          client.database
+      in
+      get_request client str
+
+    let drop_database client name =
+      let str = Printf.sprintf
+          "DROP DATABASE %s"
+          name
+      in
+      post_request client str
 
     let create_retention_policy ?(default = false) ?(replicant=1) ~name ~duration client =
       let str_default = if default then "DEFAULT" else "" in
@@ -362,39 +411,13 @@ module Client = struct
       in
       post_request client str
 
-    let drop_retention_policy client name =
-      let str = Printf.sprintf
-          "DROP RETENTION POLICY %s ON %s"
-          name
-          client.database
-      in
-      get_request client str
-
-    let drop_database client name =
-      let str = Printf.sprintf
-          "DROP DATABASE %s"
-          name
-      in
-      post_request client str
-
-    let get_points client ?(where=[]) ?group_by column measurement =
-      let request =
-        Printf.sprintf
-          "SELECT %s FROM %s.%s.%s WHERE %s %s"
-          column
-          client.database
-          (RetentionPolicy.name_of_t (Measurement.retention_policy_of_t measurement))
-          (Measurement.name_of_t measurement)
-          (Where.string_of_list_of_t where)
-          (match group_by with None -> "" | Some t -> Printf.sprintf "GROUP BY time(%s)" t)
-      in
-      get_request client request
-
     let get_all_measurements client =
       let query = "SHOW MEASUREMENTS" in
       let additional_params = [("db", client.database)] in
       get_request client ~additional_params query
   end
+  (***** Raw module *****)
+  (**********************************************************************)
 
   (** About databases *)
   let create_database client database_name =
@@ -420,8 +443,7 @@ module Client = struct
   (** About retention policies *)
   let get_all_retention_policies client =
     Raw.get_all_retention_policies_of_database client >>= fun str ->
-    let series = raw_series_of_raw_result str |> List.hd
-    in
+    let series = raw_series_of_raw_result str |> List.hd in
     (* Can be useful later to check the columns are the same than we need *)
     (* let columns = *)
     (*   Json.Util.member "columns" series *)
@@ -430,11 +452,14 @@ module Client = struct
     let list_of_values json =
       List.map RetentionPolicy.t_of_json json
     in
-    let values = list_of_values (Json.Util.member "values" series |> Json.Util.to_list) in
+    let values = list_of_values (Json.Util.member "values" series |>
+                                 Json.Util.to_list)
+    in
     Lwt.return values
 
   let create_retention_policy ?(default = false) ?(replicant=1) ~name ~duration client =
-    Raw.create_retention_policy ~default ~replicant ~name ~duration client >>= fun resp -> Lwt.return ()
+    Raw.create_retention_policy ~default ~replicant ~name ~duration client >>=
+    fun resp -> Lwt.return ()
 
   let drop_retention_policy client name =
     Raw.drop_retention_policy client name >>= fun resp -> Lwt.return ()
@@ -444,42 +469,25 @@ module Client = struct
     Lwt.return (List.find (fun rp -> RetentionPolicy.is_default rp) rps)
 
   (** About points *)
-  (* TODO *)
-
-  let get_points client ?(where=[]) ?group_by column measurement =
-    Raw.get_points client ~where ?group_by column measurement
-
-  let split_points_list_by_retention_policy points =
-    let map_rp : Point.t list MapString.t ref = ref MapString.empty in
-    List.iter
-      (fun point ->
-         let rp =
-           RetentionPolicy.name_of_t (
-             Measurement.retention_policy_of_t (Point.measurement_of_point point)
-           )
-         in
-         try
-           let current_list = MapString.find rp (!map_rp) in
-           map_rp := MapString.add rp (point :: current_list) (!map_rp)
-         with Not_found ->
-           map_rp := MapString.add rp [point] (!map_rp) 
-      )
-      points;
-    (!map_rp)
+  (* No raw implementation available due to the retention policy.
+       Can be fixed by omitting the database and the rp in the request.
+  *)
+  let get_points client ?retention_policy ?(where=[]) ?column ?group_by measurement =
+    Raw.get_points client ?retention_policy ~where ?column ?group_by measurement
 
   (* TODO: add precision *)
-  let write_points client points =
-    let splitted_points = split_points_list_by_retention_policy points in
-    MapString.iter
-      (fun rp rp_points ->
-         let rp_points_line = String.concat "\n" (List.map Point.line_of_point rp_points) in
-         ignore @@ Raw.post_request client ~additional_params:[("rp", rp)] rp_points_line
-      )
-      splitted_points;
-    Lwt.return ()
+  let write_points client ?retention_policy points =
+    Raw.write_points client ?retention_policy points >>= fun resp -> Lwt.return ()
 
   (* TODO *)
-  let write_raw_points client raw_points = Lwt.return ()
+  let write_raw_points client ?retention_policy raw_points =
+    Lwt.return ()
+
+  let get_all_measurements client =
+    Raw.get_all_measurements client
+
+  (* let retention_policy_of_measurement client measurement = *)
+  (* get_all_retention_policies client >>= fun l -> List.find  *)
 
   (* Add a timestamp. Or maybe, use something more complicated. *)
   (* let get_all_tags_of_measurement client measurement = *)

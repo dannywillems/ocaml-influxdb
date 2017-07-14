@@ -9,10 +9,10 @@ let create_and_remove_database client =
     Influxdb.Client.drop_database client database >>= fun () ->
     Influxdb.Client.get_all_database_names client >>= fun names ->
     if List.mem database names
-    then (Printf.printf "Error: %s not dropped" database; Lwt.return true)
+    then (Printf.printf "Error: %s not dropped\n" database; Lwt.return true)
     else (Printf.printf "OK"; Lwt.return true)
   )
-  else (Printf.printf "Error: %s not created" database; Lwt.return false)
+  else (Printf.printf "Error: %s not created\n" database; Lwt.return false)
 
 
 let _ =
