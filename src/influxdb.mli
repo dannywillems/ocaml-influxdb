@@ -5,7 +5,13 @@ module Datetime : sig
 
   val string_of_t : t -> string
 
-  val to_t : year:int -> month:int -> day:int -> hour:int -> minute:int -> second:int -> t
+  val query_string_of_t : t -> string
+
+  val t_of_string : string -> t
+
+  val to_t : year:int -> month:int -> day:int -> hour:int -> minute:int -> second:int -> nanosecond:int -> t
+
+  val string_of_t : t -> string
 end
 
 
@@ -58,6 +64,8 @@ module Field : sig
   val key_of_field : t -> key
   (** Get the value of a tag. *)
   val value_of_field : t -> value
+
+  val string_of_t : t -> string
 end
 
 module Tag : sig
@@ -71,7 +79,7 @@ module Tag : sig
 
   val of_key_and_value : key -> value -> t
 
-  val to_string : t -> string
+  val string_of_t : t -> string
 end
 
 module RetentionPolicy : sig
@@ -117,7 +125,7 @@ module Point : sig
   (** Get the measurement of a point. *)
   val measurement_of_point : t -> Measurement.t
 
-  val timestamp_of_point : t -> Int64.t option
+  val time_of_point : t -> Datetime.t
 end
 
 (** Represent the result of a query *)
@@ -240,7 +248,7 @@ module Client : sig
     ?column:string ->
     ?group_by:string ->
     Measurement.t ->
-    string Lwt.t
+    Point.t list Lwt.t
 
   val write_points :
     t ->
