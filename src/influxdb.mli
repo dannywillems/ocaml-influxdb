@@ -66,6 +66,8 @@ module Field : sig
   val value_of_field : t -> value
 
   val string_of_t : t -> string
+
+  val t_of_key_and_value : key -> value -> t
 end
 
 module Tag : sig
@@ -77,7 +79,7 @@ module Tag : sig
   (** A field is a couple (key, value) *)
   type t = key * value
 
-  val of_key_and_value : key -> value -> t
+  val t_of_key_and_value : key -> value -> t
 
   val string_of_t : t -> string
 end
@@ -126,6 +128,10 @@ module Point : sig
   val measurement_of_point : t -> Measurement.t
 
   val time_of_point : t -> Datetime.t
+
+  val to_t : Measurement.t -> Field.t list -> Tag.t list -> Datetime.t -> t
+
+  val line_of_t : t -> string
 end
 
 (** Represent the result of a query *)
@@ -152,6 +158,8 @@ module Client : sig
 
   type t
 
+  val database_of_t : t -> string
+
   (** Create a client *)
   val create :
     ?username:string -> ?password:string -> ?host:string -> ?port:int -> ?use_https:bool -> database:string -> unit -> t
@@ -161,7 +169,7 @@ module Client : sig
   module Raw : sig
     val get_request : t -> ?additional_params:(string * string) list -> string -> string Lwt.t
 
-    val post_request : t -> ?additional_params:(string * string) list -> string -> string Lwt.t
+    val post_request : t -> string -> ?additional_params:(string * string) list -> string -> string Lwt.t
 
     (** About databases *)
     val get_all_database_names : t -> string Lwt.t
@@ -200,6 +208,8 @@ module Client : sig
 
     val get_all_measurements :
       t -> string Lwt.t
+
+    val drop_measurement : t -> Measurement.t -> string Lwt.t
 
     val write_points :
       t ->
@@ -259,6 +269,8 @@ module Client : sig
 
   (** About measurements *)
   val get_all_measurements : t -> Measurement.t list Lwt.t
+
+  val drop_measurement : t -> Measurement.t -> unit Lwt.t
 
   val get_tag_names_of_measurement : t -> Measurement.t -> string list Lwt.t
 

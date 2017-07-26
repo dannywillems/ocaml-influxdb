@@ -16,7 +16,7 @@ module Datetime = struct
   }
 
   let int64_of_t t =
-    let nanosecond_float = (Ptime.to_float_s t.ptime_base) *. 1000000. +. float_of_int t.nanosecond in
+    let nanosecond_float = (Ptime.to_float_s t.ptime_base) *. 1e9 +. float_of_int t.nanosecond in
     Int64.of_float nanosecond_float
 
 
@@ -61,7 +61,6 @@ module Datetime = struct
     | None -> failwith "Error while creating Datetime.t. Be sure the parameters are in the ranges."
 
   let t_of_string str =
-    print_endline str;
     let year = int_of_string (String.sub str 0 4) in
     let month = int_of_string (String.sub str 5 2) in
     let day = int_of_string (String.sub str 8 2) in
@@ -160,6 +159,8 @@ module Field = struct
       "%s=%s"
       key
       (string_of_value value)
+
+  let t_of_key_and_value key value = (key, value)
 end
 
 module Tag = struct
@@ -171,7 +172,7 @@ module Tag = struct
   (** A field is a couple (key, value) *)
   type t = key * value
 
-  let of_key_and_value k v = (k, v)
+  let t_of_key_and_value k v = (k, v)
 
   let string_of_t (key, value) =
     Printf.sprintf
@@ -292,13 +293,18 @@ module Point = struct
   (** Get the timestamp of the point. *)
   let time_of_point point = point.time
 
-  let line_of_point point =
+  let line_of_t point =
     Printf.sprintf
       "%s,%s %s %s"
       (Measurement.string_of_t point.measurement)
       (String.concat "," (List.map Tag.string_of_t point.tags))
       (String.concat "," (List.map Field.string_of_t point.fields))
       (Int64.to_string (Datetime.int64_of_t point.time))
+
+  let to_t measurement fields tags time = {
+    measurement; fields; tags; time
+  }
+
 end
 
 module QueryResult = struct
@@ -370,6 +376,8 @@ module Client = struct
     database = database
   }
 
+  let database_of_t c = c.database
+
   (**********************************************************************)
   (***** Raw module *****)
   module Raw = struct
@@ -394,17 +402,12 @@ module Client = struct
           additional_params
       in
       Cohttp_lwt_unix.Client.get (Uri.of_string url) >>= fun(response, body) ->
-      let code = response |> Cohttp.Response.status |> Cohttp.Code.code_of_status in
+      (* let code = response |> Cohttp.Response.status |> Cohttp.Code.code_of_status in *)
       let body = Cohttp_lwt_body.to_string body in
       body
 
-    let post_request client ?(additional_params=[]) data =
-      let body_str =
-        Printf.sprintf
-          "q=%s"
-          data
-      in
-      let body = Cohttp_lwt_body.of_string body_str in
+    let post_request client endpoint ?(additional_params=[]) data =
+      let body = Cohttp_lwt_body.of_string data in
       let base_url = url client in
       let additional_params =
         if List.length additional_params > 0
@@ -413,8 +416,9 @@ module Client = struct
         else ""
       in
       let url = Printf.sprintf
-          "%s/query%s"
+          "%s/%s%s"
           base_url
+          endpoint
           additional_params
       in
       (* The headers are mandatory! Else, we will receive the error
@@ -422,9 +426,10 @@ module Client = struct
       *)
       let headers = Cohttp.Header.init () in
       let headers =
-        Cohttp.Header.add headers "Content-Type" "application/x-www-form-urlencoded"
+          Cohttp.Header.add headers "Content-Type" "application/x-www-form-urlencoded"
       in
       Cohttp_lwt_unix.Client.post ~body ~headers (Uri.of_string url) >>= fun (response, body) ->
+      (* let code = response |> Cohttp.Response.status |> Cohttp.Code.code_of_status in *)
       Cohttp_lwt_body.to_string body
 
     let get_points client ?retention_policy ?(where=[]) ?column ?group_by measurement =
@@ -463,21 +468,22 @@ module Client = struct
       get_request client ~additional_params request
 
     let write_points client ?precision ?retention_policy points =
-      let line = String.concat "\n" (List.map Point.line_of_point points) in
+      let line = String.concat "\n" (List.map Point.line_of_t points) in
       let additional_params = match (retention_policy, precision) with
         | None, None -> []
         | Some rp, None -> [("rp", (RetentionPolicy.name_of_t rp))]
-        | None, Some precision -> [("p", (Precision.string_of_t precision))]
-        | Some rp, Some precision -> [("rp", RetentionPolicy.name_of_t rp); ("p", Precision.string_of_t precision)]
+        | None, Some precision -> [("epoch", (Precision.string_of_t precision))]
+        | Some rp, Some precision -> [("rp", RetentionPolicy.name_of_t rp); ("epoch", Precision.string_of_t precision)]
       in
-      post_request client ~additional_params line
+      let additional_params = ("db", client.database) :: additional_params in
+      post_request client "write" ~additional_params line
 
     let create_database client database_name =
-      let str = Printf.sprintf
-          "CREATE DATABASE %s"
+      let query = Printf.sprintf
+          "q=CREATE DATABASE %s"
           database_name
       in
-      post_request client str
+      post_request client "query" query
 
     let get_all_database_names client =
       get_request client "SHOW DATABASES"
@@ -498,16 +504,16 @@ module Client = struct
       get_request client str
 
     let drop_database client name =
-      let str = Printf.sprintf
-          "DROP DATABASE %s"
+      let query = Printf.sprintf
+          "q=DROP DATABASE %s"
           name
       in
-      post_request client str
+      post_request client "query" query
 
     let create_retention_policy ?(default = false) ?(replicant=1) ~name ~duration client =
       let str_default = if default then "DEFAULT" else "" in
-      let str = Printf.sprintf
-          "CREATE RETENTION POLICY %s \
+      let query = Printf.sprintf
+          "q=CREATE RETENTION POLICY %s \
            ON %s \
            DURATION %s \
            REPLICATION %d \
@@ -518,12 +524,25 @@ module Client = struct
           replicant
           str_default
       in
-      post_request client str
+      post_request client "query" query
 
     let get_all_measurements client =
       let query = "SHOW MEASUREMENTS" in
       let additional_params = [("db", client.database)] in
       get_request client ~additional_params query
+
+    let drop_measurement client measurement =
+      (* FIXME: Need to escape double quotes. For the moment, we can't drop the
+         measurement q=cpu_load_short due to q=. Same thing happens when we use
+         simple quote.
+      *)
+      let query =
+        Printf.sprintf
+          "q=DROP MEASUREMENT %s"
+          (Measurement.string_of_t measurement)
+      in
+      let additional_params = [("db", client.database)] in
+      post_request client "query" ~additional_params query
 
     let get_tag_names_of_measurement client measurement =
       let query = "SHOW TAG KEYS" in
@@ -587,11 +606,7 @@ module Client = struct
 
 
   let write_points client ?precision ?retention_policy points =
-    Raw.write_points client ?precision ?retention_policy points >>= fun resp -> Lwt.return ()
-
-  (* TODO *)
-  (* let write_raw_points client ?retention_policy raw_points = *)
-    (* Lwt.return () *)
+    Raw.write_points client ?precision ?retention_policy points >>= fun resp -> Lwt.return_unit
 
   let get_all_measurements client =
     Raw.get_all_measurements client >>= fun str ->
@@ -606,7 +621,9 @@ module Client = struct
     in
     Lwt.return measurements
 
-  (* Add a timestamp. Or maybe, use something more complicated. *)
+  let drop_measurement client measurement =
+    Raw.drop_measurement client measurement >>= fun resp -> Lwt.return ()
+
   let get_tag_names_of_measurement client measurement =
     Raw.get_tag_names_of_measurement client measurement >>= fun str ->
     let results = QueryResult.of_string str in
@@ -681,7 +698,7 @@ module Client = struct
         match type_value with
         | 0 -> Point.Time (Datetime.t_of_string (Json.Util.to_string current_value_of_point))
         | 1 -> Point.Field (name, (Field.value_of_json current_value_of_point))
-        | 2 -> (Point.Tag (Tag.of_key_and_value name (Json.Util.to_string current_value_of_point)))
+        | 2 -> (Point.Tag (Tag.t_of_key_and_value name (Json.Util.to_string current_value_of_point)))
         | _ -> failwith "get_point_of_value, type_value is not 0, 1 or 2"
       in
       get_point_of_value (value :: accu) (List.tl point) tail
@@ -717,8 +734,10 @@ module Client = struct
   (** About points *)
   let get_points client ?retention_policy ?(where=[]) ?column ?group_by measurement =
     (* IMPROVEME *)
-    get_field_names_of_measurement client measurement >>= fun field_names ->
-    get_tag_names_of_measurement client measurement >>= fun tag_names ->
+    let field_names = get_field_names_of_measurement client measurement in
+    let tag_names = get_tag_names_of_measurement client measurement in
+    field_names >>= fun field_names ->
+    tag_names >>= fun tag_names ->
     Raw.get_points client ?retention_policy ~where ?column ?group_by measurement >>= fun points ->
     let results = QueryResult.of_string points in
     let serie = QueryResult.series_of_t results in

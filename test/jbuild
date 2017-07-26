@@ -1,6 +1,6 @@
 (executable (
   (name test)
-  (libraries (influxdb cohttp.lwt))
+  (libraries (influxdb cohttp.lwt ptime))
 ))
 
 (alias (
